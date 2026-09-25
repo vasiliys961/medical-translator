@@ -5,6 +5,7 @@ import type { Locale } from '@/lib/i18n/config'
 import { translatorUi, type TranslatorUi } from '@/lib/i18n/translator-ui'
 import { REALTIME_TRANSLATION_CREDITS_PER_MINUTE } from '@/lib/cost-calculator'
 import { recordUsageCost } from '@/lib/simple-logger'
+import LanguageDetectPanel from '@/components/LanguageDetectPanel'
 import {
   RealtimeTranslator,
   TRANSLATOR_LANGUAGES,
@@ -309,7 +310,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   const spokenLanguage = patientTurn ? doctor : patient
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-2xl border border-primary-100 bg-white p-5 shadow-lg sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{copy.title}</h1>
@@ -344,7 +345,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
               setDoctorLanguage(event.target.value)
               setError('')
             }}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
+            className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-sm shadow-sm disabled:opacity-60"
           >
             {TRANSLATOR_LANGUAGES.map((language) => (
               <option key={language.code} value={language.code}>
@@ -378,7 +379,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
               setPatientLanguage(next.code)
               setError('')
             }}
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
+            className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-sm shadow-sm disabled:opacity-60"
           >
             {TRANSLATOR_LANGUAGES.map((language) => (
               <option key={language.code} value={language.code} disabled={!language.outputCode}>
@@ -389,6 +390,17 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
         </label>
       </div>
 
+      <LanguageDetectPanel
+        locale={locale}
+        disabled={active || handingOver}
+        onApply={(doctorCode, patientCode) => {
+          languagesRef.current = { doctor: doctorCode, patient: patientCode }
+          setDoctorLanguage(doctorCode)
+          setPatientLanguage(patientCode)
+          setError('')
+        }}
+      />
+
       <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-950">
         {heardOnly.map((language) => language.label).join(', ')}: {copy.voiceOnly}
       </p>
@@ -398,7 +410,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
       )}
 
       {(active || handingOver) && (
-        <p className="mt-6 rounded-lg bg-teal-700 px-4 py-3 text-base font-semibold text-white" role="status">
+        <p className="mt-6 rounded-2xl bg-primary-900 px-4 py-3 text-base font-semibold text-white" role="status">
           {handingOver ? copy.handingOver : patientTurn ? copy.patientSpeaking : copy.doctorSpeaking}
         </p>
       )}
@@ -408,7 +420,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
           type="button"
           onClick={start}
           disabled={!canStart || handingOver}
-          className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-full bg-primary-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-primary-600 disabled:opacity-50"
         >
           {copy.start}
         </button>
@@ -416,7 +428,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
           type="button"
           onClick={() => void passTurn()}
           disabled={!canPassTurn}
-          className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-full bg-primary-800 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-primary-900 disabled:opacity-50"
           title={!doctorCanSpeak ? copy.turnUnspeakable : undefined}
         >
           {patientTurn ? copy.nowDoctor : copy.nowPatient}
@@ -425,7 +437,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
           type="button"
           onClick={end}
           disabled={!active && !handingOver}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 disabled:opacity-50"
+          className="rounded-full border border-primary-200 bg-white px-5 py-2.5 text-sm font-semibold text-primary-900 hover:bg-primary-50 disabled:opacity-50"
         >
           {copy.end}
         </button>
@@ -446,7 +458,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
 
       <div
         className={`mt-6 flex flex-col gap-2 rounded-xl px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
-          voiceLive ? 'bg-teal-50 text-teal-950 ring-1 ring-teal-200' : 'bg-slate-50 text-slate-600'
+          voiceLive ? 'bg-primary-50 text-primary-900 ring-1 ring-primary-200' : 'bg-slate-50 text-slate-600'
         }`}
       >
         <p className="font-medium">
@@ -489,7 +501,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
             {patientTurn ? copy.doctorHears : copy.translation}
             {spokenLanguage ? ` · ${spokenLanguage.label}` : ''}
           </h2>
-          <p className="mt-2 min-h-28 whitespace-pre-wrap rounded-lg bg-teal-50/60 p-3 text-sm text-slate-800">
+          <p className="mt-2 min-h-28 whitespace-pre-wrap rounded-xl bg-primary-50 p-3 text-sm text-slate-800">
             {translatedTranscript || (patientTurn ? copy.doctorHearsEmpty : copy.translationEmpty)}
           </p>
           {fidelity && (

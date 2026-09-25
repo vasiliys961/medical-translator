@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findTranslatorLanguage } from '@/lib/realtime-translate'
+import { readSessionEmail, unauthorized } from '@/lib/session'
 
 export const runtime = 'nodejs'
 
@@ -37,6 +38,8 @@ function publicError(text: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  if (!readSessionEmail(request)) return unauthorized()
+
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     return NextResponse.json(

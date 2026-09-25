@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { realtimeTranslationCredits } from '@/lib/cost-calculator'
+import { readSessionEmail, unauthorized } from '@/lib/session'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic'
 const MAX_SECONDS_PER_CHARGE = 180
 
 export async function POST(request: NextRequest) {
+  if (!readSessionEmail(request)) return unauthorized()
+
   let seconds = 0
   try {
     const body = await request.json()
