@@ -28,20 +28,24 @@ function tone(audio: AudioContext, frequency: number, when: number, duration: nu
   osc.connect(gain)
   gain.connect(audio.destination)
   gain.gain.setValueAtTime(0.0001, when)
-  gain.gain.exponentialRampToValueAtTime(0.05, when + 0.015)
+  gain.gain.exponentialRampToValueAtTime(0.2, when + 0.02)
   gain.gain.exponentialRampToValueAtTime(0.0001, when + duration)
   osc.start(when)
   osc.stop(when + duration)
 }
 
-export function playTranslateCue(kind: 'start' | 'end'): void {
+export function playTranslateCue(kind: 'start' | 'end', retried = false): void {
   const audio = audioContext()
-  if (!audio || audio.state !== 'running') return
+  if (!audio) return
+  if (audio.state !== 'running') {
+    if (!retried) void audio.resume().then(() => playTranslateCue(kind, true))
+    return
+  }
   const now = audio.currentTime
   if (kind === 'start') {
     tone(audio, 880, now, 0.07)
     tone(audio, 1175, now + 0.09, 0.07)
     return
   }
-  tone(audio, 440, now, 0.14)
+  tone(audio, 660, now, 0.28)
 }

@@ -271,6 +271,10 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
         onPhase: setPhase,
         onSourceTranscript: setSourceTranscript,
         onTranslatedTranscript: setTranslatedTranscript,
+        onUtteranceEnd: () => {
+          if (cueOnRef.current) playTranslateCue('end')
+          setColumnFlash('end')
+        },
         onFidelity: (report) => {
           if (!turns.current.acceptsFidelity(epoch)) return
           if (!report) {
