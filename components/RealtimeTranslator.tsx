@@ -404,7 +404,6 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
       const patientSpeaking = speakerRef.current === 'patient'
       if (!patientSpeaking && !doctorCanSpeak) return
       unlockTranslateCue()
-      if (cueOnRef.current) playTranslateCue('swap')
       setCanContinue(false)
       void passTurn()
       return
@@ -412,7 +411,6 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
     if (phase === 'connecting') return
     if (!doctorCanSpeak) return
     unlockTranslateCue()
-    if (cueOnRef.current) playTranslateCue('swap')
     languagesRef.current = { doctor: patientLanguage, patient: doctorLanguage }
     setDoctorLanguage(patientLanguage)
     setPatientLanguage(doctorLanguage)
