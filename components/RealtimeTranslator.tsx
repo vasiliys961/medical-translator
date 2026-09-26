@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Locale } from '@/lib/i18n/config'
 import { translatorUi, type TranslatorUi } from '@/lib/i18n/translator-ui'
 import { REALTIME_TRANSLATION_CREDITS_PER_MINUTE } from '@/lib/cost-calculator'
@@ -78,6 +78,30 @@ function formatCredits(value: number): string {
   return (Math.round(value * 10) / 10).toFixed(1)
 }
 
+function SpeakerCard({
+  title,
+  hint,
+  speaking,
+  children,
+}: {
+  title: string
+  hint: string
+  speaking: boolean
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={`rounded-3xl border-4 p-4 shadow-sm sm:p-5 ${
+        speaking ? 'border-primary-600 bg-primary-50 shadow-md' : 'border-slate-200 bg-white'
+      }`}
+    >
+      <p className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">{title}</p>
+      <p className={`mt-1 text-sm font-semibold ${speaking ? 'text-primary-800' : 'text-slate-500'}`}>{hint}</p>
+      {children}
+    </div>
+  )
+}
+
 function phaseClass(phase: TranslatePhase): string {
   switch (phase) {
     case 'listening':
@@ -117,6 +141,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   const [sessionCredits, setSessionCredits] = useState(0)
   const [speaker, setSpeaker] = useState<'doctor' | 'patient' | null>(null)
   const [handingOver, setHandingOver] = useState(false)
+  const [canContinue, setCanContinue] = useState(false)
   const speakerRef = useRef<'doctor' | 'patient' | null>(null)
   const turns = useRef(new TurnGuard())
   const accruedMs = useRef(0)
@@ -247,6 +272,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
     turns.current.close()
     rememberSpeaker(null)
     setHandingOver(false)
+    setCanContinue(false)
     clientRef.current?.disconnect()
     setPhase('stopped')
     setVoicePlaying(false)
@@ -269,11 +295,15 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
         sourceLanguage: source,
         targetLanguage: target,
         onPhase: setPhase,
-        onSourceTranscript: setSourceTranscript,
+        onSourceTranscript: (text) => {
+          if (text) setCanContinue(false)
+          setSourceTranscript(text)
+        },
         onTranslatedTranscript: setTranslatedTranscript,
         onUtteranceEnd: () => {
           if (cueOnRef.current) playTranslateCue('end')
           setColumnFlash('end')
+          setCanContinue(true)
         },
         onFidelity: (report) => {
           if (!turns.current.acceptsFidelity(epoch)) return
@@ -328,6 +358,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
     setSessionCredits(0)
     rememberSpeaker('doctor')
     setHandingOver(false)
+    setCanContinue(false)
     void begin(languagesRef.current.doctor, languagesRef.current.patient).catch(() => {
       rememberSpeaker(null)
     })
@@ -366,9 +397,22 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
     }
   }
 
-  const swap = () => {
-    if (active) return
+  const exchangeSpeakers = () => {
+    if (handingOver) return
+    const live = phase === 'listening' || phase === 'translating'
+    if (live) {
+      const patientSpeaking = speakerRef.current === 'patient'
+      if (!patientSpeaking && !doctorCanSpeak) return
+      unlockTranslateCue()
+      if (cueOnRef.current) playTranslateCue('swap')
+      setCanContinue(false)
+      void passTurn()
+      return
+    }
+    if (phase === 'connecting') return
     if (!doctorCanSpeak) return
+    unlockTranslateCue()
+    if (cueOnRef.current) playTranslateCue('swap')
     languagesRef.current = { doctor: patientLanguage, patient: doctorLanguage }
     setDoctorLanguage(patientLanguage)
     setPatientLanguage(doctorLanguage)
@@ -386,6 +430,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   useEffect(() => {
     const cue = translationCue(phaseRef.current, phase)
     phaseRef.current = phase
+    if (phase === 'translating') setCanContinue(false)
     if (!cue) return
     if (cueOnRef.current) playTranslateCue(cue)
     setColumnFlash(cue)
@@ -396,6 +441,9 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   const voiceLive = active && (voicePlaying || phase === 'listening' || phase === 'translating')
   const patientTurn = speaker === 'patient'
   const canPassTurn = (phase === 'listening' || phase === 'translating') && !handingOver && (patientTurn || doctorCanSpeak)
+  const swapDisabled = handingOver || (active ? !canPassTurn : !doctorCanSpeak)
+  const doctorSpeakingNow = active && !handingOver && !patientTurn
+  const patientSpeakingNow = active && !handingOver && patientTurn
   const heardLanguage = patientTurn ? patient : doctor
   const spokenLanguage = patientTurn ? doctor : patient
 
@@ -410,73 +458,80 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
 
       <p className="mt-3 text-sm text-slate-600">{copy.intro}</p>
 
-      <div className="mt-6 grid grid-cols-1 items-end gap-4 sm:grid-cols-[1fr_auto_1fr]">
-        <label className="block text-sm font-medium text-slate-800">
-          {copy.doctorLanguage}
-          <span className="mt-0.5 block text-xs font-normal text-slate-500">{copy.doctorHint}</span>
-          <select
-            value={doctorLanguage}
-            disabled={active}
-            onChange={(event) => {
-              languagesRef.current.doctor = event.target.value
-              setDoctorLanguage(event.target.value)
-              setError('')
-            }}
-            className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-sm shadow-sm disabled:opacity-60"
-          >
-            {TRANSLATOR_LANGUAGES.map((language) => (
-              <option key={language.code} value={language.code}>
-                {language.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mt-5 grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_9rem_1fr]">
+        <SpeakerCard
+          title={copy.doctorCard}
+          hint={doctorSpeakingNow ? copy.doctorSpeaking : copy.doctorHint}
+          speaking={doctorSpeakingNow}
+        >
+          <p className="mt-3 text-xl font-bold text-primary-900">{doctor?.label}</p>
+          <label className="mt-3 block text-sm font-medium text-slate-700">
+            {copy.doctorLanguage}
+            <select
+              value={doctorLanguage}
+              disabled={active}
+              onChange={(event) => {
+                languagesRef.current.doctor = event.target.value
+                setDoctorLanguage(event.target.value)
+                setError('')
+              }}
+              className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-3 text-base font-semibold shadow-sm disabled:opacity-60"
+            >
+              {TRANSLATOR_LANGUAGES.map((language) => (
+                <option key={language.code} value={language.code}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </SpeakerCard>
 
         <button
           type="button"
-          onClick={swap}
-          disabled={active || !doctorCanSpeak}
-          className="h-10 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-800 disabled:opacity-50"
+          onClick={exchangeSpeakers}
+          disabled={swapDisabled}
+          className="flex min-h-28 w-full flex-col items-center justify-center gap-1 rounded-3xl bg-primary-700 px-3 py-4 text-white shadow-lg hover:bg-primary-800 disabled:opacity-50"
           aria-label={copy.swapAria}
-          title={doctorCanSpeak ? copy.swapTitle : copy.voiceOnly}
+          title={!doctorCanSpeak ? copy.voiceOnly : copy.swapTitle}
         >
-          {copy.swap}
+          <span className="text-4xl leading-none" aria-hidden>
+            ⇄
+          </span>
+          <span className="text-lg font-black">{copy.swap}</span>
+          <span className="text-center text-xs font-semibold text-primary-100">
+            {active ? (patientTurn ? copy.nowDoctor : copy.nowPatient) : copy.swapTitle}
+          </span>
         </button>
 
-        <label className="block text-sm font-medium text-slate-800">
-          {copy.patientLanguage}
-          <span className="mt-0.5 block text-xs font-normal text-slate-500">{copy.patientHint}</span>
-          <select
-            value={patientLanguage}
-            disabled={active}
-            onChange={(event) => {
-              const next = findTranslatorLanguage(event.target.value)
-              if (!next?.outputCode) return
-              languagesRef.current.patient = next.code
-              setPatientLanguage(next.code)
-              setError('')
-            }}
-            className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-sm shadow-sm disabled:opacity-60"
-          >
-            {TRANSLATOR_LANGUAGES.map((language) => (
-              <option key={language.code} value={language.code} disabled={!language.outputCode}>
-                {language.outputCode ? language.label : `${language.label} — ${copy.noVoice}`}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SpeakerCard
+          title={copy.patientCard}
+          hint={patientSpeakingNow ? copy.patientSpeaking : copy.patientHint}
+          speaking={patientSpeakingNow}
+        >
+          <p className="mt-3 text-xl font-bold text-primary-900">{patient?.label}</p>
+          <label className="mt-3 block text-sm font-medium text-slate-700">
+            {copy.patientLanguage}
+            <select
+              value={patientLanguage}
+              disabled={active}
+              onChange={(event) => {
+                const next = findTranslatorLanguage(event.target.value)
+                if (!next?.outputCode) return
+                languagesRef.current.patient = next.code
+                setPatientLanguage(next.code)
+                setError('')
+              }}
+              className="mt-1 w-full rounded-xl border border-primary-200 bg-white px-3 py-3 text-base font-semibold shadow-sm disabled:opacity-60"
+            >
+              {TRANSLATOR_LANGUAGES.map((language) => (
+                <option key={language.code} value={language.code} disabled={!language.outputCode}>
+                  {language.outputCode ? language.label : `${language.label} — ${copy.noVoice}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </SpeakerCard>
       </div>
-
-      <LanguageDetectPanel
-        locale={locale}
-        disabled={active || handingOver}
-        onApply={(doctorCode, patientCode) => {
-          languagesRef.current = { doctor: doctorCode, patient: patientCode }
-          setDoctorLanguage(doctorCode)
-          setPatientLanguage(patientCode)
-          setError('')
-        }}
-      />
 
       <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-950">
         {heardOnly.map((language) => language.label).join(', ')}: {copy.voiceOnly}
@@ -509,14 +564,6 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
         />
         {copy.phase[phase]}
       </div>
-      <button
-        type="button"
-        onClick={() => setCueOn((on) => !on)}
-        className="mt-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800"
-        aria-pressed={cueOn}
-      >
-        {cueOn ? copy.cueOn : copy.cueOff}
-      </button>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
@@ -526,15 +573,6 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
           className="rounded-full bg-primary-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-primary-600 disabled:opacity-50"
         >
           {copy.start}
-        </button>
-        <button
-          type="button"
-          onClick={() => void passTurn()}
-          disabled={!canPassTurn}
-          className="rounded-full bg-primary-800 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-primary-900 disabled:opacity-50"
-          title={!doctorCanSpeak ? copy.turnUnspeakable : undefined}
-        >
-          {patientTurn ? copy.nowDoctor : copy.nowPatient}
         </button>
         <button
           type="button"
@@ -625,6 +663,31 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
           )}
         </div>
       </div>
+
+      {canContinue && (
+        <p role="status" className="mt-6 rounded-2xl bg-teal-600 px-4 py-3 text-lg font-bold text-white">
+          {copy.phraseDone}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => setCueOn((on) => !on)}
+        className="mt-4 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800"
+        aria-pressed={cueOn}
+      >
+        {cueOn ? copy.cueOn : copy.cueOff}
+      </button>
+
+      <LanguageDetectPanel
+        locale={locale}
+        disabled={active || handingOver}
+        onApply={(doctorCode, patientCode) => {
+          languagesRef.current = { doctor: doctorCode, patient: patientCode }
+          setDoctorLanguage(doctorCode)
+          setPatientLanguage(patientCode)
+          setError('')
+        }}
+      />
     </section>
   )
 }
