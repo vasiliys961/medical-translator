@@ -8,6 +8,7 @@ import { recordUsageCost } from '@/lib/simple-logger'
 import LanguageDetectPanel from '@/components/LanguageDetectPanel'
 import { fidelityDisplayLines, fidelityLineText } from '@/lib/medical-translate/fidelity-notice'
 import { TurnGuard } from '@/lib/realtime-turn'
+import { passPrompt } from '@/lib/pass-prompt'
 import { playTranslateCue, translationCue, unlockTranslateCue } from '@/lib/translate-cue'
 import type { FidelityFinding } from '@/lib/medical-translate/fidelity'
 import {
@@ -102,6 +103,37 @@ function SpeakerCard({
   )
 }
 
+function SpeechWindow({
+  title,
+  language,
+  text,
+  empty,
+  speaking,
+  tone,
+}: {
+  title: string
+  language: string
+  text: string
+  empty: string
+  speaking: boolean
+  tone: 'doctor' | 'patient'
+}) {
+  const resting = tone === 'doctor' ? 'bg-slate-50' : 'bg-primary-50'
+  return (
+    <div className={`rounded-2xl p-4 ${resting}`}>
+      <h2
+        className={`rounded-xl px-3 py-2 text-3xl font-black leading-tight ${
+          speaking ? 'bg-primary-600 text-white' : 'text-slate-400'
+        }`}
+      >
+        {title}
+      </h2>
+      <p className={`mt-2 text-lg font-semibold ${speaking ? 'text-primary-800' : 'text-slate-500'}`}>{language}</p>
+      <p className="mt-3 min-h-40 whitespace-pre-wrap text-xl leading-relaxed text-slate-900">{text || empty}</p>
+    </div>
+  )
+}
+
 function phaseClass(phase: TranslatePhase): string {
   switch (phase) {
     case 'listening':
@@ -135,7 +167,6 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   const [warningRole, setWarningRole] = useState('')
   const [warningLanguage, setWarningLanguage] = useState('')
   const [cueOn, setCueOn] = useState(true)
-  const [columnFlash, setColumnFlash] = useState<'start' | 'end' | null>(null)
   const [voicePlaying, setVoicePlaying] = useState(false)
   const [voiceBlocked, setVoiceBlocked] = useState(false)
   const [sessionCredits, setSessionCredits] = useState(0)
@@ -295,14 +326,10 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
         sourceLanguage: source,
         targetLanguage: target,
         onPhase: setPhase,
-        onSourceTranscript: (text) => {
-          if (text) setCanContinue(false)
-          setSourceTranscript(text)
-        },
+        onSourceTranscript: setSourceTranscript,
         onTranslatedTranscript: setTranslatedTranscript,
         onUtteranceEnd: () => {
           if (cueOnRef.current) playTranslateCue('end')
-          setColumnFlash('end')
           setCanContinue(true)
         },
         onFidelity: (report) => {
@@ -334,6 +361,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
 
   const start = async () => {
     unlockTranslateCue()
+    clientRef.current?.prepareVoice()
     setError('')
     try {
       const response = await fetch('/api/realtime-translate/usage', {
@@ -404,6 +432,7 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
       const patientSpeaking = speakerRef.current === 'patient'
       if (!patientSpeaking && !doctorCanSpeak) return
       unlockTranslateCue()
+      clientRef.current?.prepareVoice()
       setCanContinue(false)
       void passTurn()
       return
@@ -428,12 +457,10 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   useEffect(() => {
     const cue = translationCue(phaseRef.current, phase)
     phaseRef.current = phase
-    if (phase === 'translating') setCanContinue(false)
-    if (!cue) return
-    if (cueOnRef.current) playTranslateCue(cue)
-    setColumnFlash(cue)
-    const timer = window.setTimeout(() => setColumnFlash(null), 700)
-    return () => window.clearTimeout(timer)
+    if (cue === 'start') setCanContinue(false)
+    if (cue === 'end') setCanContinue(true)
+    if (!cue || !cueOnRef.current) return
+    playTranslateCue(cue)
   }, [phase])
 
   const voiceLive = active && (voicePlaying || phase === 'listening' || phase === 'translating')
@@ -442,8 +469,18 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
   const swapDisabled = handingOver || (active ? !canPassTurn : !doctorCanSpeak)
   const doctorSpeakingNow = active && !handingOver && !patientTurn
   const patientSpeakingNow = active && !handingOver && patientTurn
-  const heardLanguage = patientTurn ? patient : doctor
-  const spokenLanguage = patientTurn ? doctor : patient
+  const litSpeaker = doctorSpeakingNow ? 'doctor' : patientSpeakingNow ? 'patient' : null
+  const litSpeakerRef = useRef<'doctor' | 'patient' | null>(null)
+  useEffect(() => {
+    if (litSpeakerRef.current === litSpeaker) return
+    litSpeakerRef.current = litSpeaker
+    if (litSpeaker == null || !cueOnRef.current) return
+    playTranslateCue(litSpeaker)
+  }, [litSpeaker])
+  const speakerPrompt = passPrompt(patientTurn ? patientLanguage : doctorLanguage)
+  const partnerPrompt = passPrompt(patientTurn ? doctorLanguage : patientLanguage)
+  const doctorText = patientTurn ? translatedTranscript : sourceTranscript
+  const patientText = patientTurn ? sourceTranscript : translatedTranscript
 
   return (
     <section className="rounded-2xl border border-primary-100 bg-white p-5 shadow-lg sm:p-6">
@@ -625,32 +662,34 @@ export default function RealtimeTranslatorPanel({ locale }: { locale: Locale }) 
       </div>
       <p className="mt-2 text-xs text-slate-500">{copy.headphones}</p>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 items-stretch gap-4 md:grid-cols-[1fr_14rem_1fr]">
+        <SpeechWindow
+          title={copy.doctorSpeaking}
+          language={doctor?.label ?? ''}
+          text={doctorText}
+          empty={patientTurn ? copy.doctorHearsEmpty : copy.sourceEmpty}
+          speaking={doctorSpeakingNow}
+          tone="doctor"
+        />
+        <button
+          type="button"
+          onClick={exchangeSpeakers}
+          disabled={!canContinue}
+          className="flex min-h-40 w-full flex-col items-center justify-center gap-3 rounded-3xl bg-primary-700 px-3 py-5 text-white shadow-lg hover:bg-primary-800 disabled:opacity-40"
+          aria-label={`${speakerPrompt.answered}. ${partnerPrompt.answer}`}
+        >
+          <span className="text-center text-2xl font-black leading-tight">{speakerPrompt.answered}</span>
+          <span className="text-center text-3xl font-black leading-tight text-primary-100">{partnerPrompt.answer}</span>
+        </button>
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            {patientTurn ? copy.patientSaid : copy.sourceSpeech}
-            {heardLanguage ? ` · ${heardLanguage.label}` : ''}
-          </h2>
-          <p className="mt-2 min-h-28 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-800">
-            {sourceTranscript || (patientTurn ? copy.patientSourceEmpty : copy.sourceEmpty)}
-          </p>
-        </div>
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            {patientTurn ? copy.doctorHears : copy.translation}
-            {spokenLanguage ? ` · ${spokenLanguage.label}` : ''}
-          </h2>
-          <p
-            className={`mt-2 min-h-28 whitespace-pre-wrap rounded-xl p-3 text-sm text-slate-800 transition-colors ${
-              columnFlash === 'start'
-                ? 'bg-sky-100 ring-2 ring-sky-500'
-                : columnFlash === 'end'
-                  ? 'bg-teal-50 ring-2 ring-teal-500'
-                  : 'bg-primary-50'
-            }`}
-          >
-            {translatedTranscript || (patientTurn ? copy.doctorHearsEmpty : copy.translationEmpty)}
-          </p>
+          <SpeechWindow
+            title={copy.patientSpeaking}
+            language={patient?.label ?? ''}
+            text={patientText}
+            empty={patientTurn ? copy.patientSourceEmpty : copy.translationEmpty}
+            speaking={patientSpeakingNow}
+            tone="patient"
+          />
           {fidelity && fidelity.findings.length > 0 && (
             <FidelityAlert
               copy={copy}

@@ -185,6 +185,8 @@ export class RealtimeTranslator {
   private peer: RTCPeerConnection | null = null
   private localStream: MediaStream | null = null
   private audio: HTMLAudioElement | null = null
+  private voiceContext: AudioContext | null = null
+  private voiceSource: MediaElementAudioSourceNode | null = null
   private abort: AbortController | null = null
   private sourceText = ''
   private translatedText = ''
@@ -243,8 +245,10 @@ export class RealtimeTranslator {
 
       const audio = new Audio()
       audio.autoplay = true
+      audio.volume = 1
       audio.setAttribute('playsinline', 'true')
       this.audio = audio
+      this.boostVoice(audio)
       peer.ontrack = ({ streams }) => {
         if (!alive()) return
         const [remote] = streams
@@ -418,6 +422,28 @@ export class RealtimeTranslator {
     }
   }
 
+  prepareVoice(): void {
+    const Ctx = window.AudioContext
+    if (!Ctx) return
+    if (!this.voiceContext) this.voiceContext = new Ctx()
+    void this.voiceContext.resume()
+  }
+
+  private boostVoice(audio: HTMLAudioElement): void {
+    if (this.voiceContext?.state === 'closed') this.voiceContext = null
+    this.prepareVoice()
+    const context = this.voiceContext
+    if (!context) return
+    this.voiceSource?.disconnect()
+    const source = context.createMediaElementSource(audio)
+    const gain = context.createGain()
+    gain.gain.value = 2.6
+    source.connect(gain)
+    gain.connect(context.destination)
+    this.voiceSource = source
+    void context.resume()
+  }
+
   private release(): void {
     if (this.listenTimer) clearTimeout(this.listenTimer)
     if (this.lostTimer) clearTimeout(this.lostTimer)
@@ -437,6 +463,8 @@ export class RealtimeTranslator {
       this.audio.srcObject = null
       this.audio = null
     }
+    this.voiceSource?.disconnect()
+    this.voiceSource = null
     const peer = this.peer
     this.peer = null
     if (peer) {

@@ -3,15 +3,17 @@
 import { useState } from 'react'
 import AccessGate from '@/components/AccessGate'
 import RealtimeTranslatorPanel from '@/components/RealtimeTranslator'
-import { DEFAULT_LOCALE, LOCALE_LABELS, SUPPORTED_LOCALES, type Locale } from '@/lib/i18n/config'
+import { DEFAULT_LOCALE, INTERFACE_LANGUAGE_LABEL, LOCALE_LABELS, SUPPORTED_LOCALES, type Locale } from '@/lib/i18n/config'
+import { translatorUi } from '@/lib/i18n/translator-ui'
 
 export default function HomePage() {
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE)
+  const copy = translatorUi[locale]
 
   return (
     <div className="min-h-screen">
       <header className="bg-primary-900 text-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
           <div>
             <a
               href="https://doctor-opus-global.vercel.app"
@@ -20,10 +22,10 @@ export default function HomePage() {
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-base" aria-hidden>🩺</span>
               Doctor Opus
             </a>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-primary-200">Medical Translator</p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-primary-200">{copy.title}</p>
           </div>
           <label className="text-xs font-semibold text-primary-100">
-            Language
+            {INTERFACE_LANGUAGE_LABEL[locale]}
             <select
               value={locale}
               onChange={(event) => setLocale(event.target.value as Locale)}
@@ -38,7 +40,7 @@ export default function HomePage() {
           </label>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-4 py-6">
+      <main className="mx-auto max-w-5xl px-4 py-6">
         <a
           href="https://vrachirf.ru"
           target="_blank"
@@ -47,7 +49,7 @@ export default function HomePage() {
         >
           <img src="/vrachirf-logo.png" alt="Врачи РФ" className="h-8 w-auto" />
         </a>
-        <AccessGate>
+        <AccessGate locale={locale}>
           <RealtimeTranslatorPanel locale={locale} />
         </AccessGate>
       </main>
